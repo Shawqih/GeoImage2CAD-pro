@@ -2,14 +2,21 @@
  * High-Performance CAD & GIS Canvas Viewport
  * Supports multi-layer rendering, original/vector/overlay modes with opacity slider,
  * mouse pan/zoom, feature picking, vertex editing, distance measurement,
- * and FULL MOBILE TOUCH SUPPORT (1-finger drag, 2-finger pinch-to-zoom & pan).
+ * and FULL MOBILE TOUCH SUPPORT (1-finger drag, 2-finger pinch-to-zoom & pan, floating quick zoom buttons).
  */
-import React, { useRef, useEffect, useState, useCallback } from 'react';
+import React, { useRef, useEffect, useState, useCallback, useImperativeHandle, forwardRef } from 'react';
+import { ZoomIn, ZoomOut, Maximize2 } from 'lucide-react';
 import { CADFeature, CADLayer, Point2D, ScaleCalibration } from '../types/cad';
 import { distance } from '../engine/geometryRegularizer';
 
 export type ViewMode = 'original' | 'vector' | 'overlay';
 export type ToolType = 'select' | 'move' | 'edit_vertex' | 'measure' | 'calibrate_pick';
+
+export interface CADCanvasHandle {
+  fitToScreen: () => void;
+  zoomIn: () => void;
+  zoomOut: () => void;
+}
 
 interface CADCanvasProps {
   imageElement: HTMLImageElement | null;
@@ -25,7 +32,7 @@ interface CADCanvasProps {
   onPickCalibratePoints?: (p1: Point2D, p2: Point2D) => void;
 }
 
-export const CADCanvas: React.FC<CADCanvasProps> = ({
+export const CADCanvas = forwardRef<CADCanvasHandle, CADCanvasProps>(({
   imageElement,
   features,
   layers,
@@ -37,7 +44,7 @@ export const CADCanvas: React.FC<CADCanvasProps> = ({
   activeTool,
   scaleCalibration,
   onPickCalibratePoints,
-}) => {
+}, ref) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
@@ -80,8 +87,8 @@ export const CADCanvas: React.FC<CADCanvasProps> = ({
     const imgW = imageElement.naturalWidth || imageElement.width || 800;
     const imgH = imageElement.naturalHeight || imageElement.height || 600;
 
-    const scaleX = (rect.width - 40) / imgW;
-    const scaleY = (rect.height - 40) / imgH;
+    const scaleX = (rect.width - 32) / imgW;
+    const scaleY = (rect.height - 32) / imgH;
     const fitZoom = Math.min(scaleX, scaleY, 2.5);
 
     setZoom(fitZoom);
@@ -90,6 +97,20 @@ export const CADCanvas: React.FC<CADCanvasProps> = ({
       y: (rect.height - imgH * fitZoom) / 2,
     });
   }, [imageElement]);
+
+  const handleZoomIn = useCallback(() => {
+    setZoom((prev) => Math.min(prev * 1.25, 30.0));
+  }, []);
+
+  const handleZoomOut = useCallback(() => {
+    setZoom((prev) => Math.max(prev * 0.8, 0.05));
+  }, []);
+
+  useImperativeHandle(ref, () => ({
+    fitToScreen,
+    zoomIn: handleZoomIn,
+    zoomOut: handleZoomOut,
+  }));
 
   useEffect(() => {
     if (imageElement) {
@@ -162,30 +183,30 @@ export const CADCanvas: React.FC<CADCanvasProps> = ({
         ctx.strokeStyle = strokeColor;
         ctx.lineWidth = strokeWidth;
 
+        // Apply Linetype Dash Pattern
         if (layer?.linetype === 'DASHED') {
-          ctx.setLineDash([8 / zoom, 4 / zoom]);
+          ctx.setLineDash([8 / zoom, 5 / zoom]);
         } else if (layer?.linetype === 'CENTER') {
-          ctx.setLineDash([16 / zoom, 4 / zoom, 4 / zoom, 4 / zoom]);
+          ctx.setLineDash([14 / zoom, 4 / zoom, 4 / zoom, 4 / zoom]);
         } else {
           ctx.setLineDash([]);
         }
 
-        if (feat.geometryType === 'CIRCLE') {
+        if (feat.geometryType === 'POINT' && feat.points.length > 0) {
+          const p = feat.points[0];
+          ctx.fillStyle = strokeColor;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, 4 / zoom, 0, 2 * Math.PI);
+          ctx.fill();
+        } else if (feat.geometryType === 'CIRCLE') {
           const c = feat.center || feat.points[0] || { x: 0, y: 0 };
           const r = feat.radius || 10;
           ctx.beginPath();
-          ctx.arc(c.x, c.y, r, 0, Math.PI * 2);
-          ctx.fillStyle = isSelected ? 'rgba(0, 245, 255, 0.25)' : `${layer?.color || '#3B82F6'}33`;
-          ctx.fill();
-          ctx.stroke();
-
-          // Center crosshair
-          const ch = 4 / zoom;
-          ctx.beginPath();
-          ctx.moveTo(c.x - ch, c.y);
-          ctx.lineTo(c.x + ch, c.y);
-          ctx.moveTo(c.x, c.y - ch);
-          ctx.lineTo(c.x, c.y + ch);
+          ctx.arc(c.x, c.y, r, 0, 2 * Math.PI);
+          if (feat.layer === 'TREES') {
+            ctx.fillStyle = isSelected ? 'rgba(0, 245, 255, 0.35)' : 'rgba(34, 197, 94, 0.25)';
+            ctx.fill();
+          }
           ctx.stroke();
         } else if (feat.points.length >= 2) {
           ctx.beginPath();
@@ -193,82 +214,88 @@ export const CADCanvas: React.FC<CADCanvasProps> = ({
           for (let i = 1; i < feat.points.length; i++) {
             ctx.lineTo(feat.points[i].x, feat.points[i].y);
           }
-
-          if (feat.isClosed && feat.points.length >= 3) {
+          if (feat.isClosed) {
             ctx.closePath();
-            ctx.fillStyle = isSelected ? 'rgba(0, 245, 255, 0.2)' : `${layer?.color || '#3B82F6'}26`;
+          }
+
+          if (feat.isClosed && (feat.layer === 'BUILDINGS' || feat.layer === 'WATER' || feat.layer === 'PARCELS')) {
+            if (feat.layer === 'BUILDINGS') {
+              ctx.fillStyle = isSelected ? 'rgba(0, 245, 255, 0.35)' : 'rgba(239, 68, 68, 0.20)';
+            } else if (feat.layer === 'WATER') {
+              ctx.fillStyle = isSelected ? 'rgba(0, 245, 255, 0.35)' : 'rgba(59, 130, 246, 0.25)';
+            } else {
+              ctx.fillStyle = isSelected ? 'rgba(0, 245, 255, 0.35)' : 'rgba(168, 85, 247, 0.15)';
+            }
             ctx.fill();
           }
           ctx.stroke();
 
-          // Draw vertex handles if selected
-          if (isSelected) {
+          // Render Vertex Handles if Selected or Editing
+          if (isSelected || activeTool === 'edit_vertex') {
+            ctx.fillStyle = '#00F5FF';
+            ctx.strokeStyle = '#000000';
+            ctx.lineWidth = 1 / zoom;
             ctx.setLineDash([]);
             for (let i = 0; i < feat.points.length; i++) {
-              const p = feat.points[i];
-              ctx.fillStyle = i === draggedVertexIndex ? '#FF0055' : '#00F5FF';
-              ctx.strokeStyle = '#FFFFFF';
-              ctx.lineWidth = 1 / zoom;
-              const handleSize = 7 / zoom;
-              ctx.fillRect(p.x - handleSize / 2, p.y - handleSize / 2, handleSize, handleSize);
-              ctx.strokeRect(p.x - handleSize / 2, p.y - handleSize / 2, handleSize, handleSize);
+              const pt = feat.points[i];
+              ctx.beginPath();
+              ctx.arc(pt.x, pt.y, 4 / zoom, 0, 2 * Math.PI);
+              ctx.fill();
+              ctx.stroke();
             }
           }
         }
       }
     }
 
-    // 4. Render Distance Measure Line
-    if (measurePts.length > 0) {
-      ctx.setLineDash([4 / zoom, 2 / zoom]);
-      ctx.strokeStyle = '#FACC15';
+    // 4. Render Active Measurement Tool Line
+    if (activeTool === 'measure' && measurePts.length > 0) {
+      ctx.strokeStyle = '#F59E0B';
       ctx.lineWidth = 2 / zoom;
+      ctx.setLineDash([4 / zoom, 4 / zoom]);
+
       ctx.beginPath();
       ctx.moveTo(measurePts[0].x, measurePts[0].y);
-      const target = measurePts.length >= 2 ? measurePts[1] : cursorPos;
-      ctx.lineTo(target.x, target.y);
+      const endPt = measurePts.length > 1 ? measurePts[1] : cursorPos;
+      ctx.lineTo(endPt.x, endPt.y);
       ctx.stroke();
       ctx.setLineDash([]);
 
-      const pxDist = distance(measurePts[0], target);
-      const mDist = scaleCalibration.isCalibrated
-        ? (pxDist * scaleCalibration.metersPerPixel).toFixed(2) + ' m'
-        : pxDist.toFixed(1) + ' px';
+      // Draw Distance Text Callout
+      const distPx = distance(measurePts[0], endPt);
+      const distM = scaleCalibration.isCalibrated
+        ? `${(distPx * scaleCalibration.metersPerPixel).toFixed(2)} m`
+        : `${distPx.toFixed(1)} px`;
 
-      const mid = { x: (measurePts[0].x + target.x) / 2, y: (measurePts[0].y + target.y) / 2 };
-      ctx.fillStyle = '#000000CC';
-      ctx.font = `${Math.max(10, 13 / zoom)}px monospace`;
-      const text = ` ${mDist} `;
-      const metrics = ctx.measureText(text);
-      ctx.fillRect(mid.x - metrics.width / 2, mid.y - 12 / zoom, metrics.width, 16 / zoom);
-      ctx.fillStyle = '#FACC15';
-      ctx.fillText(text, mid.x - metrics.width / 2, mid.y);
+      const midX = (measurePts[0].x + endPt.x) / 2;
+      const midY = (measurePts[0].y + endPt.y) / 2;
+
+      ctx.font = `${Math.max(10, 12 / zoom)}px monospace`;
+      ctx.fillStyle = '#000000';
+      const textWidth = ctx.measureText(distM).width;
+      ctx.fillRect(midX - 4 / zoom, midY - 14 / zoom, textWidth + 8 / zoom, 18 / zoom);
+      ctx.fillStyle = '#F59E0B';
+      ctx.fillText(distM, midX, midY);
     }
 
-    // 5. Render Calibrate Scale Points
-    if (calibratePts.length > 0) {
+    // 5. Render Active Calibration Pick Points
+    if (activeTool === 'calibrate_pick' && calibratePts.length > 0) {
+      ctx.fillStyle = '#10B981';
+      ctx.strokeStyle = '#FFFFFF';
+      ctx.lineWidth = 1.5 / zoom;
       for (let i = 0; i < calibratePts.length; i++) {
-        const p = calibratePts[i];
-        ctx.fillStyle = '#E11D48';
+        const pt = calibratePts[i];
         ctx.beginPath();
-        ctx.arc(p.x, p.y, 6 / zoom, 0, Math.PI * 2);
+        ctx.arc(pt.x, pt.y, 5 / zoom, 0, 2 * Math.PI);
         ctx.fill();
-        ctx.strokeStyle = '#FFFFFF';
-        ctx.lineWidth = 1.5 / zoom;
         ctx.stroke();
-
-        ctx.fillStyle = '#FFFFFF';
-        ctx.font = `bold ${12 / zoom}px sans-serif`;
-        ctx.fillText(i === 0 ? ' A' : ' B', p.x + 8 / zoom, p.y + 4 / zoom);
       }
-
-      if (calibratePts.length === 2) {
-        ctx.strokeStyle = '#E11D48';
-        ctx.lineWidth = 2 / zoom;
-        ctx.setLineDash([4 / zoom, 4 / zoom]);
+      if (calibratePts.length === 1) {
+        ctx.strokeStyle = '#10B981';
+        ctx.setLineDash([5 / zoom, 5 / zoom]);
         ctx.beginPath();
         ctx.moveTo(calibratePts[0].x, calibratePts[0].y);
-        ctx.lineTo(calibratePts[1].x, calibratePts[1].y);
+        ctx.lineTo(cursorPos.x, cursorPos.y);
         ctx.stroke();
         ctx.setLineDash([]);
       }
@@ -281,25 +308,25 @@ export const CADCanvas: React.FC<CADCanvasProps> = ({
     layers,
     selectedFeatureId,
     hoveredFeatureId,
+    pan,
+    zoom,
     viewMode,
     overlayOpacity,
-    zoom,
-    pan,
+    activeTool,
     measurePts,
-    cursorPos,
     calibratePts,
-    draggedVertexIndex,
+    cursorPos,
     scaleCalibration,
   ]);
 
-  // Pointer Interaction logic (Unified for Mouse & Single-Touch)
-  const processPointerDown = (clientX: number, clientY: number, button: number, shift: boolean) => {
+  // Pointer & Touch Interaction Handlers
+  const processPointerDown = (clientX: number, clientY: number, button: number, shiftKey: boolean) => {
     const rect = canvasRef.current!.getBoundingClientRect();
     const mouseX = clientX - rect.left;
     const mouseY = clientY - rect.top;
     const world = screenToWorld(mouseX, mouseY);
 
-    if (button === 1 || shift) {
+    if (button === 1 || (button === 0 && shiftKey)) {
       setIsDragging(true);
       setDragStart({ x: mouseX - pan.x, y: mouseY - pan.y });
       return;
@@ -309,11 +336,10 @@ export const CADCanvas: React.FC<CADCanvasProps> = ({
       if (calibratePts.length === 0) {
         setCalibratePts([world]);
       } else if (calibratePts.length === 1) {
-        const pts = [calibratePts[0], world];
-        setCalibratePts(pts);
-        onPickCalibratePoints?.(pts[0], pts[1]);
-      } else {
-        setCalibratePts([world]);
+        const p1 = calibratePts[0];
+        const p2 = world;
+        setCalibratePts([p1, p2]);
+        onPickCalibratePoints?.(p1, p2);
       }
       return;
     }
@@ -330,7 +356,7 @@ export const CADCanvas: React.FC<CADCanvasProps> = ({
     if (activeTool === 'edit_vertex' && selectedFeatureId) {
       const feat = features.find((f) => f.id === selectedFeatureId);
       if (feat) {
-        const threshold = 14 / zoom; // Generous for mobile touch
+        const threshold = 14 / zoom;
         for (let i = 0; i < feat.points.length; i++) {
           if (distance(world, feat.points[i]) <= threshold) {
             setDraggedVertexIndex(i);
@@ -341,7 +367,7 @@ export const CADCanvas: React.FC<CADCanvasProps> = ({
     }
 
     let picked: CADFeature | null = null;
-    const pickThreshold = 12 / zoom; // Generous for mobile touch
+    const pickThreshold = 14 / zoom;
 
     for (let i = features.length - 1; i >= 0; i--) {
       const f = features[i];
@@ -481,7 +507,6 @@ export const CADCanvas: React.FC<CADCanvasProps> = ({
       const touch = e.touches[0];
       processPointerDown(touch.clientX, touch.clientY, 0, false);
     } else if (e.touches.length === 2) {
-      // Two fingers: initialize pinch to zoom
       setIsDragging(false);
       setIsMovingFeature(false);
       const t1 = e.touches[0];
@@ -504,7 +529,6 @@ export const CADCanvas: React.FC<CADCanvasProps> = ({
       const touch = e.touches[0];
       processPointerMove(touch.clientX, touch.clientY);
     } else if (e.touches.length === 2 && touchStartDist.current !== null && touchStartCenter.current !== null) {
-      // Two-finger pinch zoom
       const t1 = e.touches[0];
       const t2 = e.touches[1];
       const curDist = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
@@ -548,8 +572,36 @@ export const CADCanvas: React.FC<CADCanvasProps> = ({
         className="w-full h-full cursor-crosshair block"
       />
 
+      {/* Floating Quick Zoom Buttons for Mobile & Desktop */}
+      <div className="absolute bottom-20 sm:bottom-4 end-3 flex flex-col gap-1.5 z-10 select-none pointer-events-auto">
+        <button
+          onClick={handleZoomIn}
+          className="w-10 h-10 sm:w-9 sm:h-9 rounded-xl bg-slate-900/90 hover:bg-slate-800 active:scale-95 text-white border border-slate-700/80 shadow-lg flex items-center justify-center transition-all"
+          title="Zoom In"
+          aria-label="Zoom In"
+        >
+          <ZoomIn className="w-4 h-4" />
+        </button>
+        <button
+          onClick={handleZoomOut}
+          className="w-10 h-10 sm:w-9 sm:h-9 rounded-xl bg-slate-900/90 hover:bg-slate-800 active:scale-95 text-white border border-slate-700/80 shadow-lg flex items-center justify-center transition-all"
+          title="Zoom Out"
+          aria-label="Zoom Out"
+        >
+          <ZoomOut className="w-4 h-4" />
+        </button>
+        <button
+          onClick={fitToScreen}
+          className="w-10 h-10 sm:w-9 sm:h-9 rounded-xl bg-slate-900/90 hover:bg-slate-800 active:scale-95 text-white border border-slate-700/80 shadow-lg flex items-center justify-center transition-all"
+          title="Fit to Screen"
+          aria-label="Fit to Screen"
+        >
+          <Maximize2 className="w-4 h-4" />
+        </button>
+      </div>
+
       {/* Coordinate & Zoom HUD */}
-      <div className="absolute bottom-16 sm:bottom-3 start-3 bg-slate-900/90 backdrop-blur-md border border-slate-800 text-slate-300 text-[11px] px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-lg flex items-center gap-2 sm:gap-3 font-mono tabular-nums shadow-lg pointer-events-none z-10">
+      <div className="absolute bottom-20 sm:bottom-4 start-3 bg-slate-900/90 backdrop-blur-md border border-slate-800 text-slate-300 text-[11px] px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-lg flex items-center gap-2 sm:gap-3 font-mono tabular-nums shadow-lg pointer-events-none z-10">
         <span>X: {cursorPos.x.toFixed(1)}</span>
         <span aria-hidden="true" className="text-slate-600">·</span>
         <span>Y: {cursorPos.y.toFixed(1)}</span>
@@ -566,7 +618,9 @@ export const CADCanvas: React.FC<CADCanvasProps> = ({
       </div>
     </div>
   );
-};
+});
+
+CADCanvas.displayName = 'CADCanvas';
 
 function isPointInsidePolygon(point: Point2D, vs: Point2D[]): boolean {
   let inside = false;

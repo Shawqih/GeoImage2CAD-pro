@@ -1,7 +1,8 @@
 /**
  * Enhanced CAD Geometry Regularization Engine
- * Implements RDP simplification, Oriented Bounding Box (OBB), Dominant Azimuth Rectification,
- * True 90° Orthogonalization, Collinear Segment Merging, and Polygon Closure.
+ * Professional photogrammetry-grade building polygon orthogonalization,
+ * Oriented Bounding Box (OBB), dominant azimuth detection,
+ * collinear segment merging, sub-pixel intersection, and circle fitting.
  */
 import { Point2D } from '../types/cad';
 
@@ -85,8 +86,8 @@ export function segmentAngle(p1: Point2D, p2: Point2D): number {
 }
 
 export function normalizeAnglePi(angle: number): number {
-  let a = angle % Math.PI;
-  if (a < 0) a += Math.PI;
+  let a = angle % (Math.PI / 2);
+  if (a < 0) a += Math.PI / 2;
   return a;
 }
 
@@ -147,8 +148,8 @@ export function computeOrientedBoundingBox(points: Point2D[]): Point2D[] | null 
   const polyArea = calculatePolygonArea(points);
   const boxArea = w * h;
 
-  // If the polygon fills > 75% of its bounding box, it is predominantly rectangular
-  if (polyArea / boxArea >= 0.72) {
+  // If the polygon fills > 70% of its bounding box, it is predominantly a clean rectangular building
+  if (polyArea / boxArea >= 0.70) {
     const cosB = Math.cos(domAngle);
     const sinB = Math.sin(domAngle);
 
@@ -185,13 +186,13 @@ export function lineIntersection(p1: Point2D, p2: Point2D, p3: Point2D, p4: Poin
 }
 
 /**
- * High-accuracy Orthogonalization:
+ * Photogrammetry-Grade Building Orthogonalization:
  * Snaps all edges to parallel or perpendicular to dominant orientation,
  * producing crisp right-angled CAD building footprints.
  */
 export function orthogonalizePolygon(
   rawPoints: Point2D[],
-  toleranceDeg: number = 18,
+  toleranceDeg: number = 20,
   snapDist: number = 4
 ): Point2D[] {
   if (rawPoints.length < 3) return rawPoints;
@@ -200,86 +201,118 @@ export function orthogonalizePolygon(
   const obb = computeOrientedBoundingBox(rawPoints);
   if (obb) return obb;
 
-  let points = simplifyRDP(rawPoints, 2.5);
+  let points = simplifyRDP(rawPoints, 2.0);
   if (points.length < 3) return rawPoints;
 
-  if (distance(points[0], points[points.length - 1]) < 3) {
+  if (distance(points[0], points[points.length - 1]) < 2) {
     points.pop();
   }
   if (points.length < 3) return rawPoints;
 
-  const n = points.length;
   const domAngle = findDominantOrientation(points);
+  const cosRot = Math.cos(-domAngle);
+  const sinRot = Math.sin(-domAngle);
+  const cosInv = Math.cos(domAngle);
+  const sinInv = Math.sin(domAngle);
+
+  // 1. Rotate polygon to canonical horizontal/vertical orientation
+  const rotatedPoints: Point2D[] = points.map((p) => ({
+    x: p.x * cosRot - p.y * sinRot,
+    y: p.x * sinRot + p.y * cosRot,
+  }));
+
+  const n = rotatedPoints.length;
   const tolRad = (toleranceDeg * Math.PI) / 180;
 
-  interface Edge {
-    p1: Point2D;
-    p2: Point2D;
+  interface CanonicalEdge {
     mid: Point2D;
+    isHoriz: boolean;
+    isVert: boolean;
     dir: Point2D;
     len: number;
   }
 
-  const adjustedEdges: Edge[] = [];
+  const edges: CanonicalEdge[] = [];
 
   for (let i = 0; i < n; i++) {
-    const p1 = points[i];
-    const p2 = points[(i + 1) % n];
-    const edgeLen = distance(p1, p2);
-    const rawAngle = segmentAngle(p1, p2);
+    const p1 = rotatedPoints[i];
+    const p2 = rotatedPoints[(i + 1) % n];
+    const dx = p2.x - p1.x;
+    const dy = p2.y - p1.y;
+    const len = Math.hypot(dx, dy);
+    const angle = Math.atan2(dy, dx);
 
-    let closestAngle = rawAngle;
-    let minDiff = Infinity;
+    // In canonical frame, 0 or PI is horizontal, PI/2 or -PI/2 is vertical
+    const angleModPi = ((angle % Math.PI) + Math.PI) % Math.PI; // [0, PI)
+    const diffHoriz = Math.min(angleModPi, Math.PI - angleModPi);
+    const diffVert = Math.abs(angleModPi - Math.PI / 2);
 
-    for (let k = 0; k < 4; k++) {
-      const target = domAngle + (k * Math.PI) / 2;
-      const diff = Math.atan2(Math.sin(rawAngle - target), Math.cos(rawAngle - target));
-      if (Math.abs(diff) < Math.abs(minDiff)) {
-        minDiff = diff;
-        closestAngle = target;
-      }
+    let isHoriz = diffHoriz <= tolRad;
+    let isVert = diffVert <= tolRad;
+
+    if (isHoriz && isVert) {
+      if (diffHoriz <= diffVert) isVert = false;
+      else isHoriz = false;
     }
 
-    const finalAngle = Math.abs(minDiff) <= tolRad ? closestAngle : rawAngle;
+    let dir: Point2D;
+    if (isHoriz) {
+      dir = { x: Math.sign(dx) || 1, y: 0 };
+    } else if (isVert) {
+      dir = { x: 0, y: Math.sign(dy) || 1 };
+    } else {
+      dir = len > 0 ? { x: dx / len, y: dy / len } : { x: 1, y: 0 };
+    }
 
-    adjustedEdges.push({
-      p1,
-      p2,
+    edges.push({
       mid: { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 },
-      dir: { x: Math.cos(finalAngle), y: Math.sin(finalAngle) },
-      len: edgeLen,
+      isHoriz,
+      isVert,
+      dir,
+      len,
     });
   }
 
-  const regularized: Point2D[] = [];
+  // 2. Intersect consecutive canonical edges to find clean right-angle corners
+  const regularizedCanon: Point2D[] = [];
 
   for (let i = 0; i < n; i++) {
-    const prev = adjustedEdges[(i - 1 + n) % n];
-    const curr = adjustedEdges[i];
+    const prev = edges[(i - 1 + n) % n];
+    const curr = edges[i];
 
-    const l1_a = prev.mid;
-    const l1_b = { x: l1_a.x + prev.dir.x * 60, y: l1_a.y + prev.dir.y * 60 };
-    const l2_a = curr.mid;
-    const l2_b = { x: l2_a.x + curr.dir.x * 60, y: l2_a.y + curr.dir.y * 60 };
-
-    const inter = lineIntersection(l1_a, l1_b, l2_a, l2_b);
-
-    if (inter && distance(inter, points[i]) < Math.max(35, curr.len * 0.75)) {
-      regularized.push({
-        x: Number(inter.x.toFixed(1)),
-        y: Number(inter.y.toFixed(1)),
-      });
+    // Check if one is horizontal and other is vertical: perfect 90-degree corner
+    if (prev.isHoriz && curr.isVert) {
+      regularizedCanon.push({ x: curr.mid.x, y: prev.mid.y });
+    } else if (prev.isVert && curr.isHoriz) {
+      regularizedCanon.push({ x: prev.mid.x, y: curr.mid.y });
     } else {
-      regularized.push(points[i]);
+      // General ray intersection
+      const l1_a = prev.mid;
+      const l1_b = { x: l1_a.x + prev.dir.x * 50, y: l1_a.y + prev.dir.y * 50 };
+      const l2_a = curr.mid;
+      const l2_b = { x: l2_a.x + curr.dir.x * 50, y: l2_a.y + curr.dir.y * 50 };
+
+      const inter = lineIntersection(l1_a, l1_b, l2_a, l2_b);
+      if (inter && distance(inter, rotatedPoints[i]) < Math.max(30, curr.len * 0.8)) {
+        regularizedCanon.push(inter);
+      } else {
+        regularizedCanon.push(rotatedPoints[i]);
+      }
     }
   }
 
-  // Prune micro-segments
+  // 3. Rotate back to original world coordinate frame
+  const restoredPoints: Point2D[] = regularizedCanon.map((p) => ({
+    x: Number((p.x * cosInv - p.y * sinInv).toFixed(2)),
+    y: Number((p.x * sinInv + p.y * cosInv).toFixed(2)),
+  }));
+
+  // 4. Prune micro-segments
   const cleaned: Point2D[] = [];
-  for (let i = 0; i < regularized.length; i++) {
-    const next = regularized[(i + 1) % regularized.length];
-    if (distance(regularized[i], next) >= snapDist) {
-      cleaned.push(regularized[i]);
+  for (let i = 0; i < restoredPoints.length; i++) {
+    const next = restoredPoints[(i + 1) % restoredPoints.length];
+    if (distance(restoredPoints[i], next) >= snapDist) {
+      cleaned.push(restoredPoints[i]);
     }
   }
 

@@ -6,7 +6,7 @@
  */
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { TopNav } from './components/TopNav';
-import { CADCanvas, ViewMode, ToolType } from './components/CADCanvas';
+import { CADCanvas, ViewMode, ToolType, CADCanvasHandle } from './components/CADCanvas';
 import { Toolbar } from './components/Toolbar';
 import { LayerManager } from './components/LayerManager';
 import { PropertiesPanel } from './components/PropertiesPanel';
@@ -17,6 +17,7 @@ import { ExportModal } from './components/ExportModal';
 import { AndroidCodeModal } from './components/AndroidCodeModal';
 import { SampleDatasetsModal } from './components/SampleDatasetsModal';
 import { ProcessingProgressModal } from './components/ProcessingProgressModal';
+import { Layers, Sliders, X } from 'lucide-react';
 import {
   CADFeature,
   CADLayer,
@@ -32,12 +33,13 @@ import { convertRasterToCAD } from './engine/cvSegmentation';
 import { autoFixTopology, validateTopology } from './engine/topologyValidator';
 import { generateSampleDatasets, SampleDataset } from './engine/sampleDatasets';
 import { calibrateScaleFromPoints } from './engine/georeferencing';
-import { Language } from './i18n/translations';
+import { Language, TRANSLATIONS } from './i18n/translations';
 
 export default function App() {
   // Theme & Language (Arabic RTL default)
   const [lang, setLang] = useState<Language>('ar');
   const [isDark, setIsDark] = useState<boolean>(true);
+  const t = TRANSLATIONS[lang];
 
   // Project & Image State
   const [projectName, setProjectName] = useState<string>('Aerial_Urban_Plan');
@@ -91,6 +93,7 @@ export default function App() {
 
   // Hidden File Input Ref
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const canvasHandleRef = useRef<CADCanvasHandle | null>(null);
 
   // Datasets
   const datasets = useRef<SampleDataset[]>(generateSampleDatasets());
@@ -282,7 +285,7 @@ export default function App() {
   return (
     <div
       dir={lang === 'ar' ? 'rtl' : 'ltr'}
-      className={`w-screen h-screen flex flex-col overflow-hidden font-sans select-none ${
+      className={`w-full h-[100dvh] min-h-[100dvh] max-h-[100dvh] flex flex-col overflow-hidden font-sans select-none ${
         isDark ? 'dark bg-slate-950 text-slate-100' : 'bg-slate-100 text-slate-900'
       }`}
     >
@@ -332,8 +335,9 @@ export default function App() {
         </div>
 
         {/* Center: CAD Viewport Canvas with Floating Toolbar */}
-        <main className="flex-1 relative overflow-hidden bg-slate-950">
+        <main className="flex-1 relative overflow-hidden bg-slate-950 pb-16 lg:pb-0">
           <CADCanvas
+            ref={canvasHandleRef}
             imageElement={imageElement}
             features={features}
             layers={layers}
@@ -362,9 +366,9 @@ export default function App() {
             onChangeOpacity={setOverlayOpacity}
             activeTool={activeTool}
             onChangeTool={setActiveTool}
-            onFitToScreen={() => {}}
-            onZoomIn={() => {}}
-            onZoomOut={() => {}}
+            onFitToScreen={() => canvasHandleRef.current?.fitToScreen()}
+            onZoomIn={() => canvasHandleRef.current?.zoomIn()}
+            onZoomOut={() => canvasHandleRef.current?.zoomOut()}
             onDeleteSelected={handleDeleteSelected}
             onClosePolygon={handleClosePolygon}
             hasSelected={!!selectedFeatureId}
@@ -391,15 +395,54 @@ export default function App() {
 
       {/* Mobile Drawer (Bottom Sheet) for Layers or Properties */}
       {mobileDrawer !== 'none' && (
-        <div className="lg:hidden fixed inset-0 z-40 flex flex-col justify-end bg-slate-950/60 backdrop-blur-sm">
+        <div className="lg:hidden fixed inset-0 z-40 flex flex-col justify-end bg-slate-950/60 backdrop-blur-sm animate-in fade-in duration-150">
           {/* Backdrop tap to dismiss */}
           <div className="flex-1" onClick={() => setMobileDrawer('none')} />
 
-          <div className="bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 rounded-t-3xl shadow-2xl max-h-[75vh] flex flex-col overflow-hidden animate-in slide-in-from-bottom duration-200">
+          <div className="bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 rounded-t-3xl shadow-2xl max-h-[82dvh] flex flex-col overflow-hidden animate-in slide-in-from-bottom duration-200">
             {/* Drag Handle */}
-            <div className="w-10 h-1.5 bg-slate-300 dark:bg-slate-700 rounded-full mx-auto my-2.5 shrink-0" />
+            <div
+              className="w-12 h-1.5 bg-slate-300 dark:bg-slate-700 rounded-full mx-auto my-2 shrink-0 cursor-pointer"
+              onClick={() => setMobileDrawer('none')}
+            />
 
-            <div className="flex-1 overflow-y-auto">
+            {/* Mobile Drawer Header with Segmented Switcher & Close */}
+            <div className="px-3.5 py-2 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between shrink-0 bg-slate-50/50 dark:bg-slate-800/40">
+              <div className="flex items-center gap-1 bg-slate-200/70 dark:bg-slate-900/80 p-1 rounded-xl text-xs font-medium">
+                <button
+                  onClick={() => setMobileDrawer('layers')}
+                  className={`px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5 ${
+                    mobileDrawer === 'layers'
+                      ? 'bg-blue-600 text-white font-semibold shadow-sm'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                >
+                  <Layers className="w-3.5 h-3.5" />
+                  <span>{t.layers}</span>
+                </button>
+                <button
+                  onClick={() => setMobileDrawer('properties')}
+                  className={`px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5 ${
+                    mobileDrawer === 'properties'
+                      ? 'bg-blue-600 text-white font-semibold shadow-sm'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                >
+                  <Sliders className="w-3.5 h-3.5" />
+                  <span>{t.properties}</span>
+                </button>
+              </div>
+
+              <button
+                onClick={() => setMobileDrawer('none')}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-white hover:bg-slate-200/50 dark:hover:bg-slate-700 transition-colors min-h-[36px] min-w-[36px] flex items-center justify-center"
+                aria-label="Close"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto overscroll-contain">
               {mobileDrawer === 'layers' && (
                 <LayerManager
                   lang={lang}
@@ -437,6 +480,7 @@ export default function App() {
         activeDrawer={mobileDrawer}
         onToggleDrawer={setMobileDrawer}
         onOpenExportModal={() => setShowExportModal(true)}
+        onOpenScaleModal={() => setShowScaleModal(true)}
         onOpenAndroidModal={() => setShowAndroidModal(true)}
         onRunProcessing={() => runVectorization()}
         isProcessing={isProcessing}
