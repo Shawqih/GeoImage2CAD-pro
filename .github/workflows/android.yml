@@ -99,14 +99,14 @@ jobs:
           unzip -l android/app/build/outputs/apk/debug/app-debug.apk | grep -E 'lib/(arm64-v8a|armeabi-v7a|x86_64)/libopencv_java4.so'
           RELEASE_APK=$(find android/app/build/outputs/apk/release -maxdepth 1 -name '*.apk' -print -quit)
           test -n "$RELEASE_APK"
-          apksigner verify "$RELEASE_APK"
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify "$RELEASE_APK"
 
       - name: Verify production signature when configured
         if: ${{ env.HAS_PROD_SIGNING == 'true' }}
         run: |
           RELEASE_APK=$(find android/app/build/outputs/apk/release -maxdepth 1 -name '*.apk' -print -quit)
           test -n "$RELEASE_APK"
-          apksigner verify --verbose "$RELEASE_APK"
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$RELEASE_APK"
 
       - name: Upload APK artifacts
         uses: actions/upload-artifact@v4
