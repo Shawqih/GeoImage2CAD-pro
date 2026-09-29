@@ -20,6 +20,8 @@ env:
 jobs:
   build-web-and-apk:
     runs-on: ubuntu-latest
+    env:
+      HAS_PROD_SIGNING: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -71,7 +73,7 @@ jobs:
           echo "OPENCV_ANDROID_SDK=/tmp/OpenCV-android-sdk" >> "$GITHUB_ENV"
 
       - name: Prepare production signing
-        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+        if: ${{ env.HAS_PROD_SIGNING == 'true' }}
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
         run: |
@@ -97,7 +99,7 @@ jobs:
           unzip -l android/app/build/outputs/apk/debug/app-debug.apk | grep -E 'lib/(arm64-v8a|armeabi-v7a|x86_64)/libopencv_java4.so'
 
       - name: Verify production signature when configured
-        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+        if: ${{ env.HAS_PROD_SIGNING == 'true' }}
         run: |
           RELEASE_APK=$(find android/app/build/outputs/apk/release -maxdepth 1 -name '*.apk' -print -quit)
           test -n "$RELEASE_APK"
