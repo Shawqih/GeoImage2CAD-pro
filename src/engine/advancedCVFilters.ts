@@ -8,6 +8,47 @@
 import { Point2D } from '../types/cad';
 import { distance, simplifyRDP } from './geometryRegularizer';
 
+type NativeAndroidBridge = {
+  nativeBilateralRgba: (
+    inputBase64: string,
+    width: number,
+    height: number,
+    diameter: number,
+    sigmaColor: number,
+    sigmaSpace: number
+  ) => string;
+  nativeSauvola: (
+    grayBase64: string,
+    width: number,
+    height: number,
+    windowRadius: number,
+    k: number,
+    dynamicRange: number
+  ) => string;
+};
+
+function getNativeAndroidBridge(): NativeAndroidBridge | null {
+  const bridge = (window as Window & { AndroidBridge?: NativeAndroidBridge }).AndroidBridge;
+  return bridge ?? null;
+}
+
+function encodeBytesToBase64(bytes: ArrayLike<number>): string {
+  let binary = '';
+  const chunkSize = 0x8000;
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    const end = Math.min(offset + chunkSize, bytes.length);
+    for (let i = offset; i < end; i++) binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
+
+function decodeBase64ToBytes(value: string): Uint8Array {
+  const binary = atob(value);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
 /**
  * Fast Edge-Preserving Bilateral Filter
  * Smooths high-frequency rooftop and ground textures (solar panels, gravel, tiles)
@@ -20,6 +61,14 @@ export function applyBilateralFilter(
   spatialRadius: number = 2,
   rangeSigma: number = 25
 ): Uint8ClampedArray {
+  const nativeBridge = getNativeAndroidBridge();
+  if (nativeBridge && width * height <= 12_000_000) {
+    const nativeResult = nativeBridge.nativeBilateralRgba(
+      encodeBytesToBase64(data), width, height, Math.max(1, spatialRadius * 2 + 1), rangeSigma, spatialRadius
+    );
+    if (nativeResult) return new Uint8ClampedArray(decodeBase64ToBytes(nativeResult));
+  }
+
   const total = width * height;
   const filtered = new Uint8ClampedArray(data.length);
   const rangeCoeff = -0.5 / (rangeSigma * rangeSigma);
@@ -134,6 +183,14 @@ export function applySauvolaThreshold(
   k: number = 0.2,
   R: number = 128
 ): Uint8Array {
+  const nativeBridge = getNativeAndroidBridge();
+  if (nativeBridge && width * height <= 12_000_000) {
+    const nativeResult = nativeBridge.nativeSauvola(
+      encodeBytesToBase64(gray), width, height, windowRadius, k, R
+    );
+    if (nativeResult) return decodeBase64ToBytes(nativeResult);
+  }
+
   const binary = new Uint8Array(width * height);
   const { sum, sumSq } = computeIntegralImages(gray, width, height);
   const stride = width + 1;

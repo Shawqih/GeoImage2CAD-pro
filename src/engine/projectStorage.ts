@@ -6,6 +6,21 @@ import { ProjectData } from '../types/cad';
 
 const STORAGE_KEY = 'geoimage2cad_current_project';
 
+function saveThroughAndroidBridge(blob: Blob, filename: string, mimeType: string): boolean {
+  const bridge = (window as Window & {
+    AndroidBridge?: { saveFile: (base64Data: string, filename: string, mimeType: string) => void };
+  }).AndroidBridge;
+  if (!bridge?.saveFile) return false;
+  const reader = new FileReader();
+  reader.onloadend = () => {
+    const result = String(reader.result || '');
+    const base64 = result.includes(',') ? result.slice(result.indexOf(',') + 1) : result;
+    bridge.saveFile(base64, filename, mimeType);
+  };
+  reader.readAsDataURL(blob);
+  return true;
+}
+
 export function saveProjectToLocalStorage(project: ProjectData): void {
   try {
     const serialized = JSON.stringify(project);
@@ -41,6 +56,8 @@ export function downloadFile(
   } else {
     blob = new Blob([content], { type: `${mimeType};charset=utf-8` });
   }
+
+  if (saveThroughAndroidBridge(blob, filename, mimeType)) return;
 
   // Check for Microsoft Internet Explorer / Legacy Edge
   if ((window.navigator as any).msSaveOrOpenBlob) {

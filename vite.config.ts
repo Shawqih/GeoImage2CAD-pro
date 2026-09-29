@@ -6,6 +6,8 @@ import {defineConfig} from 'vite';
 export default defineConfig(() => {
   return {
     plugins: [react(), tailwindcss()],
+    // Required for the bundled WebView asset path: assets/web/index.html.
+    base: './',
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),
