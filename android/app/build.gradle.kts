@@ -19,10 +19,10 @@ android {
 
     defaultConfig {
         applicationId = "com.geoimage2cad.pro"
-        minSdk = 26
+        minSdk = 29
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "1.1.0-preview"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
@@ -44,7 +44,12 @@ android {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
-            if (productionSigningReady) signingConfig = signingConfigs.getByName("production")
+            signingConfig = if (productionSigningReady) {
+                signingConfigs.getByName("production")
+            } else {
+                // Installable local preview; replace with production signing when Secrets exist.
+                signingConfigs.getByName("debug")
+            }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

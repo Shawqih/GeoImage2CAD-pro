@@ -6,6 +6,8 @@
 com.geoimage2cad.pro
 ```
 
+إصدار تجربة الهاتف الحالي متوافق مع **Android 10 فأحدث** (`minSdk 29`, `targetSdk 35`).
+
 ## ما تم إنشاؤه
 
 - مشروع Gradle Android حقيقي داخل `android/`.
@@ -50,8 +52,10 @@ export OPENCV_ANDROID_SDK="$HOME/.cache/opencv-android/OpenCV-android-sdk"
 
 ```text
 android/app/build/outputs/apk/debug/app-debug.apk
-android/app/build/outputs/apk/release/app-release-unsigned.apk
+android/app/build/outputs/apk/release/app-release.apk
 ```
+
+في GitHub Actions يتم توقيع Release تلقائياً بمفتاح Debug عند غياب مفاتيح Production، ولذلك يكون APK قابلاً للتثبيت المباشر للتجربة. عند إضافة Secrets الإنتاج يتم استبدال التوقيع تلقائياً.
 
 ## APK المسلم في هذه النسخة
 

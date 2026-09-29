@@ -97,6 +97,9 @@ jobs:
         run: |
           unzip -l android/app/build/outputs/apk/debug/app-debug.apk | grep -E 'lib/(arm64-v8a|armeabi-v7a|x86_64)/libgeoimage2cad.so'
           unzip -l android/app/build/outputs/apk/debug/app-debug.apk | grep -E 'lib/(arm64-v8a|armeabi-v7a|x86_64)/libopencv_java4.so'
+          RELEASE_APK=$(find android/app/build/outputs/apk/release -maxdepth 1 -name '*.apk' -print -quit)
+          test -n "$RELEASE_APK"
+          apksigner verify "$RELEASE_APK"
 
       - name: Verify production signature when configured
         if: ${{ env.HAS_PROD_SIGNING == 'true' }}
@@ -108,7 +111,7 @@ jobs:
       - name: Upload APK artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: geoimage2cad-apk
+          name: geoimage2cad-android10-final-preview
           path: |
             android/app/build/outputs/apk/debug/*.apk
             android/app/build/outputs/apk/release/*.apk
