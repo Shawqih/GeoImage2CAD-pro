@@ -1,0 +1,13 @@
+{
+  "fixture": "synthetic-roof-stripe-v1",
+  "width": 48,
+  "height": 32,
+  "bilateral": {
+    "checksum": 3884067805,
+    "alphaChecksum": 1840294853
+  },
+  "sauvola": {
+    "checksum": 4177005890,
+    "foregroundPixels": 617
+  }
+}

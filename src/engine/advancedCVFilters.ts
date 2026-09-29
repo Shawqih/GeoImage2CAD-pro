@@ -28,6 +28,7 @@ type NativeAndroidBridge = {
 };
 
 function getNativeAndroidBridge(): NativeAndroidBridge | null {
+  if (typeof window === 'undefined') return null;
   const bridge = (window as Window & { AndroidBridge?: NativeAndroidBridge }).AndroidBridge;
   return bridge ?? null;
 }
