@@ -41,6 +41,9 @@ jobs:
       - name: Run deterministic filter benchmark
         run: npm run benchmark:filters
 
+      - name: Validate standard DXF export
+        run: npm run validate:dxf
+
       - name: Build web bundle
         run: npm run build
 

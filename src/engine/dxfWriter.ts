@@ -16,6 +16,20 @@ export interface DXFExportOptions {
   invertY?: boolean;
   imageHeight?: number;
   scaleCalibration?: ScaleCalibration;
+  /** Explicit DXF insertion unit; calibration unit is used when omitted. */
+  unit?: 'unitless' | 'm' | 'ft' | 'cm';
+}
+
+function safeLayerName(value: string): string {
+  const cleaned = value.replace(/[<>/\\":;?*|=,]/g, '_').trim();
+  return cleaned.slice(0, 255) || '0';
+}
+
+function dxfInsUnits(unit: DXFExportOptions['unit']): number {
+  if (unit === 'm') return 6;
+  if (unit === 'ft') return 2;
+  if (unit === 'cm') return 5;
+  return 0;
 }
 
 export function generateDXF(
@@ -26,7 +40,19 @@ export function generateDXF(
   const invertY = options.invertY !== false;
   const imgH = options.imageHeight || 1000;
   const isScale = options.scaleCalibration?.isCalibrated;
-  const scaleFactor = isScale ? options.scaleCalibration!.metersPerPixel : 1.0;
+  const exportUnit = options.unit ?? (isScale ? options.scaleCalibration?.unit : 'unitless');
+  const unitCode = dxfInsUnits(exportUnit);
+  const unitMultiplier = exportUnit === 'ft' ? 3.280839895 : exportUnit === 'cm' ? 100 : 1;
+  const scaleFactor = (isScale ? options.scaleCalibration!.metersPerPixel : 1.0) * unitMultiplier;
+  const layerNameBySource = new Map<string, string>();
+  const registerLayer = (name: string) => {
+    const safe = safeLayerName(name);
+    layerNameBySource.set(name, safe);
+    return safe;
+  };
+  for (const layer of layers) registerLayer(layer.name);
+  for (const feature of features) registerLayer(feature.layer);
+  const layerForFeature = (name: string) => layerNameBySource.get(name) ?? registerLayer(name);
 
   // Transform coordinates to CAD Cartesian space (Y increases upwards)
   const toCadCoord = (x: number, y: number): { x: number; y: number } => {
@@ -119,7 +145,7 @@ export function generateDXF(
   add(10, maxX.toFixed(4));
   add(20, maxY.toFixed(4));
   add(9, '$INSUNITS');
-  add(70, isScale ? 6 : 0); // 6 = Meters, 0 = Unitless
+    add(70, unitCode); // 6 = Meters, 2 = Feet, 5 = Centimeters, 0 = Unitless
   add(9, '$MEASUREMENT');
   add(70, 1); // 1 = Metric
   add(9, '$LUNITS');
@@ -171,7 +197,7 @@ export function generateDXF(
   add(2, 'LTYPE');
   add(5, hLtypeTable);
   add(100, 'AcDbSymbolTable');
-  add(70, 5);
+  add(70, 7);
 
   // ByBlock
   add(0, 'LTYPE');
@@ -244,13 +270,64 @@ export function generateDXF(
   add(49, 12.7);
   add(49, -6.35);
 
+  // PHANTOM
+  add(0, 'LTYPE');
+  add(5, nextHandle());
+  add(330, hLtypeTable);
+  add(100, 'AcDbSymbolTableRecord');
+  add(100, 'AcDbLinetypeTableRecord');
+  add(2, 'PHANTOM');
+  add(70, 0);
+  add(3, 'Phantom ____ _ _ ____ _ _');
+  add(72, 65);
+  add(73, 6);
+  add(40, 38.1);
+  add(49, 19.05);
+  add(49, -6.35);
+  add(49, 6.35);
+  add(49, -6.35);
+  add(49, 6.35);
+  add(49, -6.35);
+
+  // DOT
+  add(0, 'LTYPE');
+  add(5, nextHandle());
+  add(330, hLtypeTable);
+  add(100, 'AcDbSymbolTableRecord');
+  add(100, 'AcDbLinetypeTableRecord');
+  add(2, 'DOT');
+  add(70, 0);
+  add(3, 'Dot . . . . .');
+  add(72, 65);
+  add(73, 2);
+  add(40, 6.35);
+  add(49, 0.0);
+  add(49, -6.35);
+
   add(0, 'ENDTAB');
 
   // LAYER Table
   const uniqueLayersMap = new Map<string, CADLayer>();
   for (const l of layers) {
-    if (l.name !== '0' && !uniqueLayersMap.has(l.name)) {
-      uniqueLayersMap.set(l.name, l);
+    const safeName = layerForFeature(l.name);
+    if (safeName !== '0' && !uniqueLayersMap.has(safeName)) {
+      uniqueLayersMap.set(safeName, { ...l, name: safeName });
+    }
+  }
+  for (const feature of features) {
+    const safeName = layerForFeature(feature.layer);
+    if (safeName !== '0' && !uniqueLayersMap.has(safeName)) {
+      uniqueLayersMap.set(safeName, {
+        name: safeName,
+        displayName: safeName,
+        color: '#FFFFFF',
+        dxfColorIndex: 7,
+        lineweight: 0.25,
+        linetype: 'CONTINUOUS',
+        visible: true,
+        locked: false,
+        featureCount: 0,
+      });
     }
   }
   const uniqueLayers = Array.from(uniqueLayersMap.values());
@@ -413,7 +490,7 @@ export function generateDXF(
       add(5, handleHex);
       add(330, hModelSpaceRecord);
       add(100, 'AcDbEntity');
-      add(8, feat.layer);
+      add(8, layerForFeature(feat.layer));
       add(100, 'AcDbPoint');
       add(10, p.x.toFixed(4));
       add(20, p.y.toFixed(4));
@@ -426,7 +503,7 @@ export function generateDXF(
       add(5, handleHex);
       add(330, hModelSpaceRecord);
       add(100, 'AcDbEntity');
-      add(8, feat.layer);
+      add(8, layerForFeature(feat.layer));
       add(100, 'AcDbLine');
       add(10, p1.x.toFixed(4));
       add(20, p1.y.toFixed(4));
@@ -459,7 +536,7 @@ export function generateDXF(
       add(5, handleHex);
       add(330, hModelSpaceRecord);
       add(100, 'AcDbEntity');
-      add(8, feat.layer);
+      add(8, layerForFeature(feat.layer));
       add(100, 'AcDbPolyline');
       add(90, pts.length);
       add(70, feat.isClosed ? 1 : 0); // 1 = closed, 0 = open
@@ -479,7 +556,7 @@ export function generateDXF(
       add(5, handleHex);
       add(330, hModelSpaceRecord);
       add(100, 'AcDbEntity');
-      add(8, feat.layer);
+      add(8, layerForFeature(feat.layer));
       add(100, 'AcDbCircle');
       add(10, c.x.toFixed(4));
       add(20, c.y.toFixed(4));
@@ -500,7 +577,7 @@ export function generateDXF(
       add(5, handleHex);
       add(330, hModelSpaceRecord);
       add(100, 'AcDbEntity');
-      add(8, feat.layer);
+      add(8, layerForFeature(feat.layer));
       add(100, 'AcDbCircle');
       add(10, c.x.toFixed(4));
       add(20, c.y.toFixed(4));
@@ -517,7 +594,7 @@ export function generateDXF(
       add(5, handleHex);
       add(330, hModelSpaceRecord);
       add(100, 'AcDbEntity');
-      add(8, feat.layer);
+      add(8, layerForFeature(feat.layer));
       add(100, 'AcDbText');
       add(10, p.x.toFixed(4));
       add(20, p.y.toFixed(4));
@@ -525,7 +602,6 @@ export function generateDXF(
       add(40, h.toFixed(2));
       add(1, feat.text || '');
       add(7, 'STANDARD');
-      add(100, 'AcDbText');
     }
   }
 

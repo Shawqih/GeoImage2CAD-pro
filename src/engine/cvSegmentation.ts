@@ -197,12 +197,18 @@ async function processAerialSatellitePipeline(
   onProgress?.('OpenCV Watershed Building Separation & Boundary Refinement...', 40);
   await yieldToMain();
 
-  const buildingBinaryMask = new Uint8Array(total);
-  for (let i = 0; i < total; i++) {
-    buildingBinaryMask[i] = classMask[i] === 1 ? 1 : 0;
-  }
-
   const minBuildingPx = Math.max(25, Math.round(params.minFeatureSize / (invScale * invScale)));
+  const buildingBinaryMask = new Uint8Array(total);
+  const buildingCandidates = extractConnectedComponents(
+    classMask,
+    width,
+    height,
+    1,
+    Math.max(8, minBuildingPx)
+  );
+  for (const candidate of buildingCandidates) {
+    for (const pixel of candidate.pixels) buildingBinaryMask[pixel] = 1;
+  }
   const buildingBlobs = applyOpenCVWatershed(buildingBinaryMask, data, width, height, minBuildingPx);
 
   onProgress?.('90° Photogrammetric Building Orthogonalization (تقويم المباني هندسياً)...', 55);
@@ -584,7 +590,17 @@ function extractConnectedComponents(
         if (cy < minY) minY = cy;
         if (cy > maxY) maxY = cy;
 
-        const neighbors = [cur - 1, cur + 1, cur - width, cur + width];
+        const neighbors: number[] = [];
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            if (dx === 0 && dy === 0) continue;
+            const nx = cx + dx;
+            const ny = cy + dy;
+            if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+              neighbors.push(ny * width + nx);
+            }
+          }
+        }
         for (const n of neighbors) {
           if (n >= 0 && n < width * height && !visited[n] && mask[n] === targetClass) {
             visited[n] = 1;
