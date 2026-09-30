@@ -29,9 +29,11 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val nativeVersion = NativeEngine.version()
-        val filterSmokeTest = NativeEngine.runFilterSmokeTest()
-        Log.i("GeoImage2CAD", "Loaded $nativeVersion; OpenCV filters smoke test=$filterSmokeTest")
+        // Native/OpenCV is optional at startup. Never run image processing or
+        // Watershed on the UI thread before the WebView is created.
+        runCatching { NativeEngine.version() }
+            .onSuccess { Log.i("GeoImage2CAD", "Loaded $it") }
+            .onFailure { Log.e("GeoImage2CAD", "Native Core unavailable; using WebView fallback", it) }
         window.statusBarColor = android.graphics.Color.rgb(11, 17, 32)
         window.navigationBarColor = android.graphics.Color.rgb(11, 17, 32)
 
@@ -111,7 +113,8 @@ class MainActivity : AppCompatActivity() {
 
     inner class AndroidBridge {
         @JavascriptInterface
-        fun nativeEngineInfo(): String = NativeEngine.version()
+        fun nativeEngineInfo(): String = runCatching { NativeEngine.version() }
+            .getOrDefault("Native Core unavailable")
 
         @JavascriptInterface
         fun nativeBilateralRgba(
@@ -156,7 +159,7 @@ class MainActivity : AppCompatActivity() {
                 val outputBytes = ByteArray(inputBytes.size)
                 output.get(0, outputBytes)
                 Base64.getEncoder().withoutPadding().encodeToString(outputBytes)
-            } catch (_: Exception) {
+            } catch (_: Throwable) {
                 ""
             }
         }
