@@ -6,18 +6,18 @@ import { ProjectData } from '../types/cad';
 
 const STORAGE_KEY = 'geoimage2cad_current_project';
 
-function saveThroughAndroidBridge(blob: Blob, filename: string, mimeType: string): boolean {
+async function saveThroughAndroidBridge(blob: Blob, filename: string, mimeType: string): Promise<boolean> {
   const bridge = (window as Window & {
-    AndroidBridge?: { saveFile: (base64Data: string, filename: string, mimeType: string) => void };
+    AndroidBridge?: { saveFile: (base64Data: string, filename: string, mimeType: string) => string };
   }).AndroidBridge;
   if (!bridge?.saveFile) return false;
-  const reader = new FileReader();
-  reader.onloadend = () => {
-    const result = String(reader.result || '');
-    const base64 = result.includes(',') ? result.slice(result.indexOf(',') + 1) : result;
-    bridge.saveFile(base64, filename, mimeType);
-  };
-  reader.readAsDataURL(blob);
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(i, Math.min(i + 0x8000, bytes.length)));
+  }
+  const result = bridge.saveFile(btoa(binary), filename, mimeType);
+  if (result !== 'OK') throw new Error(result || 'Android MediaStore rejected the file');
   return true;
 }
 
@@ -43,11 +43,11 @@ export function loadProjectFromLocalStorage(): ProjectData | null {
 /**
  * Universal file download function that works across Desktop, Android, and iOS browsers.
  */
-export function downloadFile(
+export async function downloadFile(
   content: string | Blob | ArrayBuffer,
   filename: string,
   mimeType: string = 'application/octet-stream'
-): void {
+): Promise<void> {
   let blob: Blob;
   if (content instanceof Blob) {
     blob = content;
@@ -57,7 +57,7 @@ export function downloadFile(
     blob = new Blob([content], { type: `${mimeType};charset=utf-8` });
   }
 
-  if (saveThroughAndroidBridge(blob, filename, mimeType)) return;
+  if (await saveThroughAndroidBridge(blob, filename, mimeType)) return;
 
   // Check for Microsoft Internet Explorer / Legacy Edge
   if ((window.navigator as any).msSaveOrOpenBlob) {
@@ -124,6 +124,6 @@ export async function shareOrDownloadFile(
   }
 
   // Fallback to direct download
-  downloadFile(blob, filename, mimeType);
+  await downloadFile(blob, filename, mimeType);
   return false;
 }

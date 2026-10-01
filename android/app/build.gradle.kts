@@ -21,8 +21,8 @@ android {
         applicationId = "com.geoimage2cad.pro"
         minSdk = 29
         targetSdk = 35
-        versionCode = 4
-        versionName = "1.2.0-cv-dxf-preview"
+        versionCode = 5
+        versionName = "1.3.0-professional-preview"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")

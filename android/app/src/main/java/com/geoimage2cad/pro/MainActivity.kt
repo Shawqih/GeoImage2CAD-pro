@@ -165,9 +165,11 @@ class MainActivity : AppCompatActivity() {
         }
 
         @JavascriptInterface
-        fun saveFile(base64Data: String, filename: String, mimeType: String) {
+        fun saveFile(base64Data: String, filename: String, mimeType: String): String {
+            var uri: Uri? = null
             try {
                 val bytes = Base64.getDecoder().decode(base64Data)
+                if (bytes.isEmpty()) return "SAVE_EMPTY_FILE"
                 val safeName = File(filename).name.ifBlank { "geoimage2cad-export.bin" }
                 val values = ContentValues().apply {
                     put(MediaStore.Downloads.DISPLAY_NAME, safeName)
@@ -176,19 +178,24 @@ class MainActivity : AppCompatActivity() {
                     put(MediaStore.Downloads.IS_PENDING, 1)
                 }
                 val resolver = contentResolver
-                val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+                uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
                     ?: throw IllegalStateException("Unable to create download")
                 resolver.openOutputStream(uri)?.use { it.write(bytes) }
+                    ?: throw IllegalStateException("Unable to open download stream")
                 values.clear()
                 values.put(MediaStore.Downloads.IS_PENDING, 0)
                 resolver.update(uri, values, null, null)
                 runOnUiThread {
                     Toast.makeText(this@MainActivity, "تم حفظ الملف في Downloads/GeoImage2CAD", Toast.LENGTH_LONG).show()
                 }
+                return "OK"
             } catch (error: Exception) {
+                uri?.let { runCatching { contentResolver.delete(it, null, null) } }
+                Log.e("GeoImage2CAD", "File export failed", error)
                 runOnUiThread {
                     Toast.makeText(this@MainActivity, "تعذر حفظ الملف: ${error.message}", Toast.LENGTH_LONG).show()
                 }
+                return "SAVE_FAILED:${error.message ?: "unknown"}"
             }
         }
     }

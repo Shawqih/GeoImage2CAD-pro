@@ -61,6 +61,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
   const [previewContent, setPreviewContent] = useState<{ title: string; text: string } | null>(null);
   const [copied, setCopied] = useState(false);
   const [activeDownloadId, setActiveDownloadId] = useState<string | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
@@ -72,15 +73,23 @@ export const ExportModal: React.FC<ExportModalProps> = ({
   };
 
   // 1. Export DXF
-  const handleExportDXF = () => {
-    const dxfString = generateDXF(features, layers, {
-      acadVersion: 'AC1027',
-      invertY: true,
-      imageHeight,
-      scaleCalibration,
-    });
-    downloadFile(dxfString, `${baseFileName}.dxf`, 'application/dxf');
-    markDownloaded('dxf');
+  const handleExportDXF = async () => {
+    setExportError(null);
+    try {
+      if (features.length === 0) throw new Error(lang === 'ar' ? 'لا توجد معالم لتصديرها' : 'There are no features to export');
+      const dxfString = generateDXF(features, layers, {
+        acadVersion: 'AC1027',
+        invertY: true,
+        imageHeight,
+        scaleCalibration,
+      });
+      if (!dxfString.includes('\r\n0\r\nEOF\r\n')) throw new Error('DXF validation failed: missing EOF');
+      await downloadFile(dxfString, `${baseFileName}.dxf`, 'application/dxf');
+      markDownloaded('dxf');
+    } catch (error) {
+      console.error('DXF export failed', error);
+      setExportError(error instanceof Error ? error.message : String(error));
+    }
   };
 
   const handleShareDXF = async () => {
@@ -115,7 +124,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
         georeference,
         imageHeight
       );
-      downloadFile(zipBlob, `${baseFileName}_Shapefile.zip`, 'application/zip');
+      await downloadFile(zipBlob, `${baseFileName}_Shapefile.zip`, 'application/zip');
       markDownloaded('shp');
     } catch (err) {
       console.error('Failed to create shapefile zip', err);
@@ -151,7 +160,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
   // 3. Export GeoJSON
   const handleExportGeoJSON = () => {
     const geoJson = generateGeoJSON(features, scaleCalibration, georeference, imageHeight);
-    downloadFile(geoJson, `${baseFileName}.geojson`, 'application/geo+json');
+    void downloadFile(geoJson, `${baseFileName}.geojson`, 'application/geo+json');
     markDownloaded('geojson');
   };
 
@@ -169,7 +178,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
   // 4. Export KML
   const handleExportKML = () => {
     const kml = generateKML(features, layers, scaleCalibration, georeference, imageHeight);
-    downloadFile(kml, `${baseFileName}.kml`, 'application/vnd.google-earth.kml+xml');
+    void downloadFile(kml, `${baseFileName}.kml`, 'application/vnd.google-earth.kml+xml');
     markDownloaded('kml');
   };
 
@@ -181,7 +190,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
   // 5. Export SVG
   const handleExportSVG = () => {
     const svg = generateSVG(features, layers, imageWidth, imageHeight);
-    downloadFile(svg, `${baseFileName}.svg`, 'image/svg+xml');
+    void downloadFile(svg, `${baseFileName}.svg`, 'image/svg+xml');
     markDownloaded('svg');
   };
 
@@ -193,7 +202,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
   // 6. Export CSV
   const handleExportCSV = () => {
     const csv = generateCSV(features, scaleCalibration);
-    downloadFile(csv, `${baseFileName}_attributes.csv`, 'text/csv');
+    void downloadFile(csv, `${baseFileName}_attributes.csv`, 'text/csv');
     markDownloaded('csv');
   };
 
@@ -315,6 +324,11 @@ export const ExportModal: React.FC<ExportModalProps> = ({
 
         {/* Content Body */}
         <div className="p-4 sm:p-6 overflow-y-auto flex-1 space-y-4">
+          {exportError && (
+            <div className="rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-xs text-red-700 dark:text-red-300">
+              <strong>{lang === 'ar' ? 'فشل التصدير: ' : 'Export failed: '}</strong>{exportError}
+            </div>
+          )}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
             {exportFormats.map((fmt) => {
               const Icon = fmt.icon;
